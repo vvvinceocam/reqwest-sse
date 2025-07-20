@@ -1,0 +1,24 @@
+[package]
+name = "reqwest-sse"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+async-stream = "0.3"
+reqwest = { version = "0.12", features = [
+    "http2",
+    "stream",
+], default-features = false }
+tokio = "1"
+tokio-stream = "0.1"
+tokio-util = { version = "0.7", features = ["io"] }
+
+[dev-dependencies]
+httpmock = "0.7"
+reqwest = { version = "0.12", features = [
+    "http2",
+    "rustls-tls",
+    "stream",
+    "zstd",
+], default-features = false }
+tokio = { version = "1", features = ["full"] }
