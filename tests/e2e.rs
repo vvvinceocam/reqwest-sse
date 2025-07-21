@@ -1,9 +1,10 @@
 use httpmock::MockServer;
 
 use reqwest_sse::{Event, ServerSentEvents, assert_events};
+use tokio_stream::StreamExt;
 
 #[tokio::test]
-async fn plop_plip() {
+async fn process_simple_event_stream() {
     let server = MockServer::start_async().await;
 
     let mock = server
@@ -11,32 +12,7 @@ async fn plop_plip() {
             when.method("GET").path("/sse");
             then.status(200)
                 .header("content-type", "text/event-stream")
-                .body(
-                    r#"
-data: foo
-
-data: foo
-data: bar
-data: baz
-
-event: coin
-data: prout
-
-event: foo
-
-:
-
-id: plop
-retry: 12342
-
-data:
-
-nodata
-
-data: asdsadsadsasadsad
-
-"#,
-                );
+                .body(include_str!("data/simple_event_stream.sse"));
         })
         .await;
 
@@ -54,21 +30,23 @@ data: asdsadsadsasadsad
         &[
             Event {
                 event_type: "message".to_string(),
-                data: "foo".to_string(),
+                data: "first event".to_string(),
             },
             Event {
                 event_type: "message".to_string(),
-                data: "foo\nbar\nbaz".to_string(),
+                data: "second\nevent\nis\nmultiline".to_string(),
             },
             Event {
-                event_type: "coin".to_string(),
-                data: "prout".to_string(),
+                event_type: "metadata".to_string(),
+                data: "event with custom event type".to_string(),
             },
             Event {
                 event_type: "message".to_string(),
-                data: "asdsadsadsasadsad".to_string(),
+                data: "fourth valid event".to_string(),
             },
         ],
     )
     .await;
+
+    assert!(events.next().await.is_none());
 }
