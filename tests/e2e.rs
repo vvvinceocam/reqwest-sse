@@ -1,4 +1,4 @@
-use std::pin::Pin;
+use std::{pin::Pin, time::Duration};
 
 use httpmock::MockServer;
 
@@ -43,18 +43,26 @@ async fn process_simple_event_stream() {
             Event {
                 event_type: "message".to_string(),
                 data: "first event".to_string(),
+                last_event_id: None,
+                retry: None,
             },
             Event {
                 event_type: "message".to_string(),
                 data: "second\nevent\nis\nmultiline".to_string(),
+                last_event_id: None,
+                retry: None,
             },
             Event {
                 event_type: "metadata".to_string(),
                 data: "event with custom event type".to_string(),
+                last_event_id: None,
+                retry: None,
             },
             Event {
                 event_type: "message".to_string(),
                 data: "fourth valid event".to_string(),
+                last_event_id: Some("empty-event-with-id-and-retry".to_string()),
+                retry: Some(Duration::from_millis(12345)),
             },
         ],
     )

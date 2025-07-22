@@ -30,7 +30,7 @@
 //! ```
 pub mod error;
 
-use std::pin::Pin;
+use std::{pin::Pin, time::Duration};
 
 use async_stream::try_stream;
 use reqwest::{
@@ -54,6 +54,8 @@ pub static MIME_EVENT_STREAM: HeaderValue = HeaderValue::from_static("text/event
 struct EventBuffer {
     event_type: String,
     data: String,
+    last_event_id: Option<String>,
+    retry: Option<Duration>,
 }
 
 impl EventBuffer {
@@ -63,6 +65,8 @@ impl EventBuffer {
         Self {
             event_type: String::new(),
             data: String::new(),
+            last_event_id: None,
+            retry: None,
         }
     }
 
@@ -78,6 +82,8 @@ impl EventBuffer {
                     self.event_type.clone()
                 },
                 data: self.data.to_string(),
+                last_event_id: self.last_event_id.clone(),
+                retry: self.retry,
             })
         } else {
             None
@@ -102,6 +108,14 @@ impl EventBuffer {
         }
         self.data.push_str(data);
     }
+
+    fn set_id(&mut self, id: &str) {
+        self.last_event_id = Some(id.to_string());
+    }
+
+    fn set_retry(&mut self, retry: Duration) {
+        self.retry = Some(retry);
+    }
 }
 
 /// Parse line to split field name and value, applying proper trimming.
@@ -116,8 +130,12 @@ fn parse_line(line: &str) -> (&str, &str) {
 pub struct Event {
     /// A string identifying the type of event described.
     pub event_type: String,
-    ///  The data field for the message.
+    /// The data field for the message.
     pub data: String,
+    /// Last event ID value.
+    pub last_event_id: Option<String>,
+    /// Reconnection time.
+    pub retry: Option<Duration>,
 }
 
 /// A trait for consuming a [Response] as a [Stream] of Server-Sent [Event]s (SSE).
@@ -189,6 +207,14 @@ impl EventSource for Response {
                     }
                     "data" => {
                         event_buffer.push_data(value);
+                    }
+                    "id" => {
+                        event_buffer.set_id(value);
+                    }
+                    "retry" => {
+                        if let Ok(millis) = value.parse() {
+                            event_buffer.set_retry(Duration::from_millis(millis));
+                        }
                     }
                     _ => continue,
                 }
