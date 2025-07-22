@@ -1,7 +1,19 @@
+use std::pin::Pin;
+
 use httpmock::MockServer;
 
-use reqwest_sse::{Event, ServerSentEvents, assert_events};
-use tokio_stream::StreamExt;
+use reqwest_sse::{Event, EventSource, error::EventError};
+use tokio_stream::{Stream, StreamExt};
+
+async fn assert_events(
+    stream: &mut Pin<Box<impl Stream<Item = Result<Event, EventError>>>>,
+    expected_events: &[Event],
+) {
+    for expected in expected_events {
+        let event = stream.next().await.unwrap().unwrap();
+        assert_eq!(&event, expected);
+    }
+}
 
 #[tokio::test]
 async fn process_simple_event_stream() {

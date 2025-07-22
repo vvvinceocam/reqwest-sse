@@ -1,3 +1,35 @@
+//! # `reqwest-sse`
+//!
+//!  `reqwest-sse` is a lightweight Rust library that extends
+//! [reqwest](https://docs.rs/reqwest) by adding native support for handling
+//! [Server-Sent Events (SSE)](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events)
+//! . It introduces the [EventSource] trait, which enhances reqwest's [Response]
+//! type with an ergonomic `.events()` method. This method transforms the
+//! response body into an asynchronous [Stream] of SSE [Event]s, enabling
+//! seamless integration of real-time event handling in applications
+//! using the familiar reqwest HTTP client and the [StreamExt] API.
+//!
+//! ## Example
+//!
+//! ```rust,no_run
+//! use tokio_stream::StreamExt;
+//!
+//! use reqwest_sse::EventSource;
+//!
+//! #[tokio::main]
+//! async fn main() {
+//!     let mut events = reqwest::get("https://sse.test-free.online/api/story")
+//!         .await.unwrap()
+//!         .events()
+//!         .await.unwrap();
+//!
+//!     while let Some(Ok(event)) = events.next().await {
+//!         println!("{event:?}");
+//!     }
+//! }
+//! ```
+pub mod error;
+
 use std::pin::Pin;
 
 use async_stream::try_stream;
@@ -9,14 +41,23 @@ use tokio::io::AsyncBufReadExt;
 use tokio_stream::{Stream, StreamExt};
 use tokio_util::io::StreamReader;
 
+use crate::error::{EventError, EventSourceError};
+
+/// `text/event-stream` MIME type as [HeaderValue].
 pub static MIME_EVENT_STREAM: HeaderValue = HeaderValue::from_static("text/event-stream");
 
+/// Internal buffer used to accumulate lines of an SSE (Server-Sent Events) stream.
+///
+/// A single [EventBuffer] can be used to process the whole stream. [set_event_type] and [push_data]
+/// methods update the state. [produce_event] produces a proper [Event] and prepares the internal
+/// state to process further data.
 struct EventBuffer {
     event_type: String,
     data: String,
 }
 
 impl EventBuffer {
+    /// Creates fresh new [EventBuffer].
     #[allow(clippy::new_without_default)]
     fn new() -> Self {
         Self {
@@ -25,6 +66,9 @@ impl EventBuffer {
         }
     }
 
+    /// Produces a [Event], if current state allow it.
+    ///
+    /// Reset the internal state to process further data.
     fn produce_event(&mut self) -> Option<Event> {
         let event = if !self.data.is_empty() {
             Some(Event {
@@ -45,11 +89,13 @@ impl EventBuffer {
         event
     }
 
+    /// Set the [Event]'s type. Overide previous value.
     fn set_event_type(&mut self, event_type: &str) {
         self.event_type.clear();
         self.event_type.push_str(event_type);
     }
 
+    /// Extends internal data with given data.
     fn push_data(&mut self, data: &str) {
         if !self.data.is_empty() {
             self.data.push('\n');
@@ -58,55 +104,52 @@ impl EventBuffer {
     }
 }
 
+/// Parse line to split field name and value, applying proper trimming.
 fn parse_line(line: &str) -> (&str, &str) {
     let (field, value) = line.split_once(':').unwrap_or((line, ""));
     let value = value.strip_prefix(' ').unwrap_or(value);
     (field, value)
 }
 
+/// Server-Sent Event representation.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Event {
+    /// A string identifying the type of event described.
     pub event_type: String,
+    ///  The data field for the message.
     pub data: String,
 }
 
-#[derive(Debug)]
-pub enum EventError {
-    IoError(std::io::Error),
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum ServerSentEventsError {
-    BadStatus(String),
-    BadContentType,
-}
-
-pub trait ServerSentEvents {
+/// A trait for consuming a [Response] as a [Stream] of Server-Sent [Event]s (SSE).
+pub trait EventSource {
+    /// Converts the [Response] into a stream of Server-Sent Events.
+    /// Returns it as a faillable [Stream] of [Event]s.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [EventSourceError] if:
+    /// - The response status is not `200 OK`
+    /// - The `Content-Type` header is missing or not `text/event-stream`
+    ///
+    /// The stream yields an [EventError] when error occure on event reading.
     fn events(
         self,
     ) -> impl Future<
-        Output = Result<
-            Pin<Box<impl Stream<Item = Result<Event, EventError>>>>,
-            ServerSentEventsError,
-        >,
+        Output = Result<Pin<Box<impl Stream<Item = Result<Event, EventError>>>>, EventSourceError>,
     > + Send;
 }
 
-impl ServerSentEvents for Response {
+impl EventSource for Response {
     async fn events(
         self,
-    ) -> Result<Pin<Box<impl Stream<Item = Result<Event, EventError>>>>, ServerSentEventsError>
-    {
+    ) -> Result<Pin<Box<impl Stream<Item = Result<Event, EventError>>>>, EventSourceError> {
         let status = self.status();
         if status != StatusCode::OK {
-            return Err(ServerSentEventsError::BadStatus(format!(
-                "expects 200 OK, found {}",
-                status.as_str()
-            )));
+            return Err(EventSourceError::BadStatus(status));
         }
         let content_type = self.headers().get(CONTENT_TYPE);
         if content_type != Some(&MIME_EVENT_STREAM) {
-            return Err(ServerSentEventsError::BadContentType);
+            return Err(EventSourceError::BadContentType(content_type.cloned()));
         }
 
         let mut stream = StreamReader::new(
@@ -156,12 +199,22 @@ impl ServerSentEvents for Response {
     }
 }
 
-pub async fn assert_events(
-    stream: &mut Pin<Box<impl Stream<Item = Result<Event, EventError>>>>,
-    expected_events: &[Event],
-) {
-    for expected in expected_events {
-        let event = stream.next().await.unwrap().unwrap();
-        assert_eq!(&event, expected);
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_line_properly() {
+        let (field, value) = parse_line("event: message");
+        assert_eq!(field, "event");
+        assert_eq!(value, "message");
+
+        let (field, value) = parse_line("non-standard field");
+        assert_eq!(field, "non-standard field");
+        assert_eq!(value, "");
+
+        let (field, value) = parse_line("data:data with : inside");
+        assert_eq!(field, "data");
+        assert_eq!(value, "data with : inside");
     }
 }

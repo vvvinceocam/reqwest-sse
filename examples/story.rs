@@ -2,7 +2,7 @@ use std::io::Write;
 
 use tokio_stream::StreamExt;
 
-use reqwest_sse::ServerSentEvents;
+use reqwest_sse::EventSource;
 
 #[tokio::main]
 async fn main() {
