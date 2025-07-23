@@ -3,11 +3,11 @@
 //!  `reqwest-sse` is a lightweight Rust library that extends
 //! [reqwest](https://docs.rs/reqwest) by adding native support for handling
 //! [Server-Sent Events (SSE)](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events)
-//! . It introduces the [EventSource] trait, which enhances reqwest's [Response]
+//! . It introduces the [`EventSource`] trait, which enhances reqwest's [`Response`]
 //! type with an ergonomic `.events()` method. This method transforms the
-//! response body into an asynchronous [Stream] of SSE [Event]s, enabling
+//! response body into an asynchronous [Stream] of SSE [`Event`]s, enabling
 //! seamless integration of real-time event handling in applications
-//! using the familiar reqwest HTTP client and the [StreamExt] API.
+//! using the familiar reqwest HTTP client and the [`StreamExt`] API.
 //!
 //! ## Example
 //!
@@ -43,13 +43,13 @@ use tokio_util::io::StreamReader;
 
 use crate::error::{EventError, EventSourceError};
 
-/// `text/event-stream` MIME type as [HeaderValue].
+/// `text/event-stream` MIME type as [`HeaderValue`].
 pub static MIME_EVENT_STREAM: HeaderValue = HeaderValue::from_static("text/event-stream");
 
 /// Internal buffer used to accumulate lines of an SSE (Server-Sent Events) stream.
 ///
-/// A single [EventBuffer] can be used to process the whole stream. [set_event_type] and [push_data]
-/// methods update the state. [produce_event] produces a proper [Event] and prepares the internal
+/// A single [`EventBuffer`] can be used to process the whole stream. [`set_event_type`] and [`push_data`]
+/// methods update the state. [`produce_event`] produces a proper [`Event`] and prepares the internal
 /// state to process further data.
 struct EventBuffer {
     event_type: String,
@@ -59,7 +59,7 @@ struct EventBuffer {
 }
 
 impl EventBuffer {
-    /// Creates fresh new [EventBuffer].
+    /// Creates fresh new [`EventBuffer`].
     #[allow(clippy::new_without_default)]
     fn new() -> Self {
         Self {
@@ -70,11 +70,13 @@ impl EventBuffer {
         }
     }
 
-    /// Produces a [Event], if current state allow it.
+    /// Produces a [`Event`], if current state allow it.
     ///
     /// Reset the internal state to process further data.
     fn produce_event(&mut self) -> Option<Event> {
-        let event = if !self.data.is_empty() {
+        let event = if self.data.is_empty() {
+            None
+        } else {
             Some(Event {
                 event_type: if self.event_type.is_empty() {
                     "message".to_string()
@@ -85,8 +87,6 @@ impl EventBuffer {
                 last_event_id: self.last_event_id.clone(),
                 retry: self.retry,
             })
-        } else {
-            None
         };
 
         self.event_type.clear();
@@ -95,7 +95,7 @@ impl EventBuffer {
         event
     }
 
-    /// Set the [Event]'s type. Overide previous value.
+    /// Set the [`Event`]'s type. Overide previous value.
     fn set_event_type(&mut self, event_type: &str) {
         self.event_type.clear();
         self.event_type.push_str(event_type);
@@ -138,18 +138,18 @@ pub struct Event {
     pub retry: Option<Duration>,
 }
 
-/// A trait for consuming a [Response] as a [Stream] of Server-Sent [Event]s (SSE).
+/// A trait for consuming a [`Response`] as a [`Stream`] of Server-Sent [`Event`]s (SSE).
 pub trait EventSource {
-    /// Converts the [Response] into a stream of Server-Sent Events.
-    /// Returns it as a faillable [Stream] of [Event]s.
+    /// Converts the [`Response`] into a stream of Server-Sent Events.
+    /// Returns it as a faillable [`Stream`] of [`Event`]s.
     ///
     /// # Errors
     ///
-    /// Returns an [EventSourceError] if:
+    /// Returns an [`EventSourceError`] if:
     /// - The response status is not `200 OK`
     /// - The `Content-Type` header is missing or not `text/event-stream`
     ///
-    /// The stream yields an [EventError] when error occure on event reading.
+    /// The stream yields an [`EventError`] when error occure on event reading.
     fn events(
         self,
     ) -> impl Future<
@@ -216,7 +216,7 @@ impl EventSource for Response {
                             event_buffer.set_retry(Duration::from_millis(millis));
                         }
                     }
-                    _ => continue,
+                    _ => {}
                 }
             }
         });
