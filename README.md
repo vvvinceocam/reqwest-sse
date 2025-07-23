@@ -14,7 +14,10 @@ reqwest HTTP client.
 ## Example
 
 ```rust
-let events = reqwest::get("")
+use reqwest_sse::EventSource;
+use tokio_stream::StreamExt;
+
+let events = reqwest::get("https://example.com/events")
     .await?
     .events()
     .await?
