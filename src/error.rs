@@ -1,11 +1,13 @@
-use std::fmt::Display;
-
+use core::error::Error;
 use reqwest::{StatusCode, header::HeaderValue};
+use std::fmt::Display;
 
 #[derive(Debug)]
 pub enum EventError {
     IoError(std::io::Error),
 }
+
+impl Error for EventError {}
 
 impl Display for EventError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -22,6 +24,8 @@ pub enum EventSourceError {
     BadStatus(StatusCode),
     BadContentType(Option<HeaderValue>),
 }
+
+impl Error for EventSourceError {}
 
 impl Display for EventSourceError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
