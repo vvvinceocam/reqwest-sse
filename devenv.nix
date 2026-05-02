@@ -5,6 +5,7 @@
     bacon
     cargo-audit
     cargo-edit
+    cargo-license
     cargo-nextest
     cargo-shear
   ];
