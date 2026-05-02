@@ -84,7 +84,7 @@ impl EventBuffer {
                 } else {
                     self.event_type.clone()
                 },
-                data: self.data.to_string(),
+                data: self.data.clone(),
                 last_event_id: self.last_event_id.clone(),
                 retry: self.retry,
             })
