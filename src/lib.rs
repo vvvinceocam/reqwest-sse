@@ -1,9 +1,7 @@
-//! # `reqwest-sse`
-//!
 //!  `reqwest-sse` is a lightweight Rust library that extends
 //! [reqwest](https://docs.rs/reqwest) by adding native support for handling
 //! [Server-Sent Events (SSE)](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events)
-//! . It introduces the [`EventSource`] trait, which enhances reqwest's [`Response`]
+//! . It introduces the [`EventSource`] trait, which extends reqwest's [`Response`]
 //! type with an ergonomic `.events()` method. This method transforms the
 //! response body into an asynchronous [Stream] of SSE [`Event`]s, enabling
 //! seamless integration of real-time event handling in applications
@@ -42,6 +40,9 @@ use tokio_stream::{Stream, StreamExt};
 use tokio_util::io::StreamReader;
 
 use crate::error::{EventError, EventSourceError};
+
+/// Represents a stream of Server-Sent Events.
+pub type ServerSentEvents = Pin<Box<dyn Stream<Item = Result<Event, EventError>>>>;
 
 /// `text/event-stream` MIME type as [`HeaderValue`].
 pub static MIME_EVENT_STREAM: HeaderValue = HeaderValue::from_static("text/event-stream");
@@ -150,17 +151,11 @@ pub trait EventSource {
     /// - The `Content-Type` header is missing or not `text/event-stream`
     ///
     /// The stream yields an [`EventError`] when error occure on event reading.
-    fn events(
-        self,
-    ) -> impl Future<
-        Output = Result<Pin<Box<impl Stream<Item = Result<Event, EventError>>>>, EventSourceError>,
-    > + Send;
+    fn events(self) -> impl Future<Output = Result<ServerSentEvents, EventSourceError>> + Send;
 }
 
 impl EventSource for Response {
-    async fn events(
-        self,
-    ) -> Result<Pin<Box<impl Stream<Item = Result<Event, EventError>>>>, EventSourceError> {
+    async fn events(self) -> Result<ServerSentEvents, EventSourceError> {
         let status = self.status();
         if status != StatusCode::OK {
             return Err(EventSourceError::BadStatus(status));
