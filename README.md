@@ -4,28 +4,33 @@
 [![Crates.io][badge-crates.io]][reqwest-sse-crates.io]
 [![Docs.rs][badge-docs.rs]][reqwest-sse-docs.rs]
 
-`reqwest-sse` is a lightweight Rust library that extends
+ `reqwest-sse` is a lightweight Rust library that extends
 [reqwest](https://docs.rs/reqwest) by adding native support for handling
 [Server-Sent Events (SSE)](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events)
-. It introduces the `EventSource` trait, which enhances reqwest's `Response`
+. It introduces the [`EventSource`] trait, which extends reqwest's [`Response`]
 type with an ergonomic `.events()` method. This method transforms the
-response body into an asynchronous stream of SSE events, enabling seamless
-integration of real-time event handling in applications using the familiar
-reqwest HTTP client.
+response body into an asynchronous [Stream] of SSE [`Event`]s, enabling
+seamless integration of real-time event handling in applications
+using the familiar reqwest HTTP client and the [`StreamExt`] API.
 
-> :warning: This library is experimental and **shouldn't be used in production**.
-
-## Example
+### Example
 
 ```rust
-use reqwest_sse::EventSource;
 use tokio_stream::StreamExt;
 
-let events = reqwest::get("https://example.com/events")
-    .await?
-    .events()
-    .await?
-    .collect::<Vec<_>>();
+use reqwest_sse::EventSource;
+
+#[tokio::main]
+async fn main() {
+    let mut events = reqwest::get("https://sse.test-free.online/api/story")
+        .await.unwrap()
+        .events()
+        .await.unwrap();
+
+    while let Some(Ok(event)) = events.next().await {
+        println!("{event:?}");
+    }
+}
 ```
 
 [rust]: https://www.rust-lang.org/
