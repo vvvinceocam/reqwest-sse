@@ -16,7 +16,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - run: cargo install cargo-audit cargo-nextest
+      - run: cargo install cargo-audit
       - name: Static Analysis
         run: cargo clippy --all-targets --all-features -- -Dclippy::all -Dclippy::pedantic
       - name: Build lib
@@ -24,7 +24,7 @@ jobs:
       - name: Build doc
         run: cargo doc
       - name: Test suite
-        run: cargo nextest run
+        run: cargo test
       - name: Run examples
         run: cargo test --examples
       - name: Run doc snippets
