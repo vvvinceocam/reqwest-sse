@@ -22,7 +22,7 @@ use reqwest_sse::EventSource;
 
 #[tokio::main]
 async fn main() {
-    let mut events = reqwest::get("https://sse.test-free.online/api/story")
+    let mut events = reqwest::get("https://example.com/sse")
         .await.unwrap()
         .events()
         .await.unwrap();
