@@ -1,5 +1,5 @@
 //!  `reqwest-sse` is a lightweight Rust library that extends
-//! [reqwest](https://docs.rs/reqwest) by adding native support for handling
+//! [reqwest](https://docs.rs/reqwest) by adding native support of
 //! [Server-Sent Events (SSE)](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events)
 //! . It introduces the [`EventSource`] trait, which extends reqwest's [`Response`]
 //! type with an ergonomic `.events()` method. This method transforms the
