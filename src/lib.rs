@@ -44,8 +44,18 @@ use crate::error::{EventError, EventSourceError};
 /// Represents a stream of Server-Sent Events.
 pub type ServerSentEvents = Pin<Box<dyn Stream<Item = Result<Event, EventError>>>>;
 
-/// `text/event-stream` MIME type as [`HeaderValue`].
-pub static MIME_EVENT_STREAM: HeaderValue = HeaderValue::from_static("text/event-stream");
+pub static MIME_EVENT_STREAM: &[u8] = b"text/event-stream";
+
+/// Returns `true` if the given [`HeaderValue`] is an event stream MIME type.
+fn is_event_stream(value: &HeaderValue) -> bool {
+    value
+        .as_bytes()
+        .split(|&b| b == b';')
+        .next()
+        .unwrap_or(b"")
+        .trim_ascii()
+        .eq_ignore_ascii_case(MIME_EVENT_STREAM)
+}
 
 /// Internal buffer used to accumulate lines of an SSE (Server-Sent Events) stream.
 ///
@@ -160,9 +170,15 @@ impl EventSource for Response {
         if status != StatusCode::OK {
             return Err(EventSourceError::BadStatus(status));
         }
-        let content_type = self.headers().get(CONTENT_TYPE);
-        if content_type != Some(&MIME_EVENT_STREAM) {
-            return Err(EventSourceError::BadContentType(content_type.cloned()));
+        match self.headers().get(CONTENT_TYPE) {
+            Some(content_type) => {
+                if !is_event_stream(content_type) {
+                    return Err(EventSourceError::BadContentType(Some(
+                        content_type.to_owned(),
+                    )));
+                }
+            }
+            None => return Err(EventSourceError::BadContentType(None)),
         }
 
         let mut stream = StreamReader::new(
@@ -237,5 +253,26 @@ mod tests {
         let (field, value) = parse_line("data:data with : inside");
         assert_eq!(field, "data");
         assert_eq!(value, "data with : inside");
+    }
+
+    #[test]
+    fn is_event_stream_accept_valid_values() {
+        assert!(is_event_stream(&HeaderValue::from_static(
+            "text/event-stream"
+        )));
+        assert!(is_event_stream(&HeaderValue::from_static(
+            "text/event-stream; charset=utf-8"
+        )));
+        assert!(is_event_stream(&HeaderValue::from_static(
+            "   TEXT/event-stream    ; charset=utf-8"
+        )));
+    }
+
+    #[test]
+    fn is_event_stream_reject_invalid_values() {
+        assert!(!is_event_stream(&HeaderValue::from_static("plain/text")));
+        assert!(!is_event_stream(&HeaderValue::from_static(
+            "text/event-but-not-realy"
+        )));
     }
 }
