@@ -1,4 +1,4 @@
-{ pkgs, lib, config, inputs, ... }:
+{ pkgs, ... }:
 
 {
   packages = with pkgs; [
@@ -21,5 +21,11 @@
     commitizen.enable = true;
     rustfmt.enable = true;
     trufflehog.enable = true;
+  };
+
+  profiles = {
+    msrv.module = {
+      languages.rust.version = "1.85.0";
+    };
   };
 }
