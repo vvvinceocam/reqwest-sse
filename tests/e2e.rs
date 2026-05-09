@@ -22,7 +22,7 @@ async fn process_simple_event_stream() {
             then.status(200)
                 .header("content-type", "text/event-stream")
                 .body_from_file("tests/data/simple_event_stream.sse")
-                .delay(Duration::from_millis(1_000));
+                .delay(Duration::from_secs(1));
         })
         .await;
 
