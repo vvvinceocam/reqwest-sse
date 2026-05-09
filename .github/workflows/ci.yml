@@ -2,23 +2,26 @@ name: Continuous Integration
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  continuous-integration:
-
+  build-and-test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        rust-toolchain: [stable, "1.85.0"]
 
     steps:
       - uses: actions/checkout@v4
-      - run: cargo install cargo-audit
-      - name: Static Analysis
-        run: cargo clippy --all-targets --all-features -- -Dclippy::all -Dclippy::pedantic
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust-toolchain }}
       - name: Build lib
         run: cargo build
       - name: Build doc
@@ -29,5 +32,16 @@ jobs:
         run: cargo test --examples
       - name: Run doc snippets
         run: cargo test --doc
+
+  lint-and-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - run: cargo install cargo-audit
+      - name: Static Analysis
+        run: cargo clippy --all-targets --all-features -- -Dclippy::all -Dclippy::pedantic
       - name: Vulnerability check
         run: cargo audit
