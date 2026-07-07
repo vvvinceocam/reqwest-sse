@@ -197,7 +197,7 @@ impl EventSource for Response {
                     break;
                 }
                 let line = if let Some(line) = line_buffer.strip_suffix('\n') {
-                    line
+                    line.strip_suffix('\r').unwrap_or(line)
                 } else {
                     &line_buffer
                 };
