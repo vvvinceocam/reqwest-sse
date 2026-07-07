@@ -160,8 +160,17 @@ pub trait EventSource {
     /// - The response status is not `200 OK`
     /// - The `Content-Type` header is missing or not `text/event-stream`
     ///
-    /// The stream yields an [`EventError`] when error occure on event reading.
+    /// The stream yields an [`EventError`] when error occurs on event reading.
     fn events(self) -> impl Future<Output = Result<ServerSentEvents, EventSourceError>> + Send;
+
+    /// Variant of [`EventSource::events()`] skipping the checks for
+    /// http status code and `Content-Type` header.
+    ///
+    /// Converts the [`Response`] into a stream of Server-Sent Events.
+    /// Returns it as a faillable [`Stream`] of [`Event`]s.
+    ///
+    /// The stream yields an [`EventError`] when error occurs on event reading.
+    fn events_unchecked(self) -> impl Future<Output = ServerSentEvents> + Send;
 }
 
 impl EventSource for Response {
@@ -181,6 +190,10 @@ impl EventSource for Response {
             None => return Err(EventSourceError::BadContentType(None)),
         }
 
+        Ok(self.events_unchecked().await)
+    }
+
+    async fn events_unchecked(self) -> ServerSentEvents {
         let mut stream = StreamReader::new(
             self.bytes_stream()
                 .map(|result| result.map_err(std::io::Error::other)),
@@ -189,7 +202,7 @@ impl EventSource for Response {
         let mut line_buffer = String::new();
         let mut event_buffer = EventBuffer::new();
 
-        let stream = Box::pin(try_stream! {
+        Box::pin(try_stream! {
             loop {
                 line_buffer.clear();
                 let count = stream.read_line(&mut line_buffer).await.map_err(EventError::IoError)?;
@@ -230,9 +243,7 @@ impl EventSource for Response {
                     _ => {}
                 }
             }
-        });
-
-        Ok(stream)
+        })
     }
 }
 
