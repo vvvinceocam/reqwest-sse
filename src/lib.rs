@@ -42,7 +42,7 @@ use tokio_util::io::StreamReader;
 use crate::error::{EventError, EventSourceError};
 
 /// Represents a stream of Server-Sent Events.
-pub type ServerSentEvents = Pin<Box<dyn Stream<Item = Result<Event, EventError>>>>;
+pub type ServerSentEvents = Pin<Box<dyn Stream<Item = Result<Event, EventError>> + Send>>;
 
 pub static MIME_EVENT_STREAM: &[u8] = b"text/event-stream";
 
