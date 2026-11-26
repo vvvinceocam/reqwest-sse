@@ -7,6 +7,18 @@ pub enum EventError {
     IoError(std::io::Error),
 }
 
+impl EventError {
+    pub(crate) fn from_decoder(error: russe::Error) -> Self {
+        Self::IoError(match error {
+            russe::Error::Io { source } => source,
+            russe::Error::InvalidUtf8 { source } => {
+                std::io::Error::new(std::io::ErrorKind::InvalidData, source)
+            }
+            other => std::io::Error::other(other),
+        })
+    }
+}
+
 impl Error for EventError {}
 
 impl Display for EventError {

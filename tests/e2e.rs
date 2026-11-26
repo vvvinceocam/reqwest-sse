@@ -68,3 +68,26 @@ async fn process_simple_event_stream() {
 
     assert!(events.next().await.is_none());
 }
+
+#[tokio::test]
+async fn crlf_stream_applies_retry_and_discards_incomplete_event() {
+    let server = MockServer::start_async().await;
+    server
+        .mock_async(|_, then| {
+            then.header("content-type", "text/event-stream")
+                .body("retry: 250\r\n\r\ndata: first\r\ndata: second\r\n\r\ndata: unfinished\r\n");
+        })
+        .await;
+
+    let mut events = reqwest::get(server.url("/"))
+        .await
+        .unwrap()
+        .events()
+        .await
+        .unwrap();
+
+    let event = events.next().await.unwrap().unwrap();
+    assert_eq!(event.retry, Some(Duration::from_millis(250)));
+    assert_eq!(event.data, "first\nsecond");
+    assert!(events.next().await.is_none());
+}

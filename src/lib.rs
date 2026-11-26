@@ -31,13 +31,16 @@ pub mod error;
 use std::{pin::Pin, time::Duration};
 
 use async_stream::try_stream;
+use bytes::BytesMut;
 use reqwest::{
     Response, StatusCode,
     header::{CONTENT_TYPE, HeaderValue},
 };
-use tokio::io::AsyncBufReadExt;
 use tokio_stream::{Stream, StreamExt};
-use tokio_util::io::StreamReader;
+use tokio_util::{
+    codec::{Decoder, FramedRead},
+    io::StreamReader,
+};
 
 use crate::error::{EventError, EventSourceError};
 
@@ -57,83 +60,25 @@ fn is_event_stream(value: &HeaderValue) -> bool {
         .eq_ignore_ascii_case(MIME_EVENT_STREAM)
 }
 
-/// Internal buffer used to accumulate lines of an SSE (Server-Sent Events) stream.
+/// Adapts [`russe::Decoder`] to discard an incomplete SSE event at EOF.
 ///
-/// A single [`EventBuffer`] can be used to process the whole stream. [`set_event_type`] and [`push_data`]
-/// methods update the state. [`produce_event`] produces a proper [`Event`] and prepares the internal
-/// state to process further data.
-struct EventBuffer {
-    event_type: String,
-    data: String,
-    last_event_id: Option<String>,
-    retry: Option<Duration>,
-}
+/// [`FramedRead`] calls [`Decoder::decode_eof`] when the response ends. Its default
+/// implementation reports an error if a partial frame remains. This wrapper delegates
+/// parsing to `russe` and lets the stream end after the last complete event.
+#[derive(Default)]
+struct EventDecoder(russe::Decoder);
 
-impl EventBuffer {
-    /// Creates fresh new [`EventBuffer`].
-    #[allow(clippy::new_without_default)]
-    fn new() -> Self {
-        Self {
-            event_type: String::new(),
-            data: String::new(),
-            last_event_id: None,
-            retry: None,
-        }
+impl Decoder for EventDecoder {
+    type Item = russe::Event;
+    type Error = russe::Error;
+
+    fn decode(&mut self, buf: &mut BytesMut) -> russe::Result<Option<Self::Item>> {
+        self.0.decode(buf)
     }
 
-    /// Produces a [`Event`], if current state allow it.
-    ///
-    /// Reset the internal state to process further data.
-    fn produce_event(&mut self) -> Option<Event> {
-        let event = if self.data.is_empty() {
-            None
-        } else {
-            Some(Event {
-                event_type: if self.event_type.is_empty() {
-                    "message".to_string()
-                } else {
-                    self.event_type.clone()
-                },
-                data: self.data.clone(),
-                last_event_id: self.last_event_id.clone(),
-                retry: self.retry,
-            })
-        };
-
-        self.event_type.clear();
-        self.data.clear();
-
-        event
+    fn decode_eof(&mut self, buf: &mut BytesMut) -> russe::Result<Option<Self::Item>> {
+        self.decode(buf)
     }
-
-    /// Set the [`Event`]'s type. Overide previous value.
-    fn set_event_type(&mut self, event_type: &str) {
-        self.event_type.clear();
-        self.event_type.push_str(event_type);
-    }
-
-    /// Extends internal data with given data.
-    fn push_data(&mut self, data: &str) {
-        if !self.data.is_empty() {
-            self.data.push('\n');
-        }
-        self.data.push_str(data);
-    }
-
-    fn set_id(&mut self, id: &str) {
-        self.last_event_id = Some(id.to_string());
-    }
-
-    fn set_retry(&mut self, retry: Duration) {
-        self.retry = Some(retry);
-    }
-}
-
-/// Parse line to split field name and value, applying proper trimming.
-fn parse_line(line: &str) -> (&str, &str) {
-    let (field, value) = line.split_once(':').unwrap_or((line, ""));
-    let value = value.strip_prefix(' ').unwrap_or(value);
-    (field, value)
 }
 
 /// Server-Sent Event representation.
@@ -165,6 +110,9 @@ pub trait EventSource {
 }
 
 impl EventSource for Response {
+    // Keep `async` so the `!Send` `ServerSentEvents` stream is built on poll,
+    // allowing the returned future to stay `Send`.
+    #[allow(clippy::unused_async_trait_impl)]
     async fn events(self) -> Result<ServerSentEvents, EventSourceError> {
         let status = self.status();
         if status != StatusCode::OK {
@@ -181,53 +129,37 @@ impl EventSource for Response {
             None => return Err(EventSourceError::BadContentType(None)),
         }
 
-        let mut stream = StreamReader::new(
-            self.bytes_stream()
-                .map(|result| result.map_err(std::io::Error::other)),
-        );
-
-        let mut line_buffer = String::new();
-        let mut event_buffer = EventBuffer::new();
+        let body = self
+            .bytes_stream()
+            .map(|chunk| chunk.map_err(std::io::Error::other));
+        let mut frames = FramedRead::new(StreamReader::new(body), EventDecoder::default());
 
         let stream = Box::pin(try_stream! {
-            loop {
-                line_buffer.clear();
-                let count = stream.read_line(&mut line_buffer).await.map_err(EventError::IoError)?;
-                if count == 0 {
-                    break;
-                }
-                let line = if let Some(line) = line_buffer.strip_suffix('\n') {
-                    line
-                } else {
-                    &line_buffer
-                };
+            let mut last_event_id = None;
+            let mut retry = None;
 
-                // dispatch
-                if line.is_empty() {
-                    if let Some(event) = event_buffer.produce_event() {
-                        yield event;
-                    }
-                    continue;
-                }
+            while let Some(frame) = frames.next().await {
+                match frame.map_err(EventError::from_decoder)? {
+                    russe::Event::Comment(_) => {}
+                    russe::Event::Retry(delay) => retry = Some(delay),
+                    russe::Event::Message(message) => {
+                        if let Some(id) = message.id {
+                            last_event_id = Some(id.to_string());
+                        }
+                        retry = message.retry.or(retry);
 
-                let (field, value) = parse_line(line);
-
-                match field {
-                    "event" => {
-                        event_buffer.set_event_type(value);
-                    }
-                    "data" => {
-                        event_buffer.push_data(value);
-                    }
-                    "id" => {
-                        event_buffer.set_id(value);
-                    }
-                    "retry" => {
-                        if let Ok(millis) = value.parse() {
-                            event_buffer.set_retry(Duration::from_millis(millis));
+                        if !message.data.is_empty() {
+                            yield Event {
+                                event_type: message.event.as_deref()
+                                    .filter(|name| !name.is_empty())
+                                    .unwrap_or("message")
+                                    .to_owned(),
+                                data: message.data.to_string(),
+                                last_event_id: last_event_id.clone(),
+                                retry,
+                            };
                         }
                     }
-                    _ => {}
                 }
             }
         });
@@ -239,21 +171,6 @@ impl EventSource for Response {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn parse_line_properly() {
-        let (field, value) = parse_line("event: message");
-        assert_eq!(field, "event");
-        assert_eq!(value, "message");
-
-        let (field, value) = parse_line("non-standard field");
-        assert_eq!(field, "non-standard field");
-        assert_eq!(value, "");
-
-        let (field, value) = parse_line("data:data with : inside");
-        assert_eq!(field, "data");
-        assert_eq!(value, "data with : inside");
-    }
 
     #[test]
     fn is_event_stream_accept_valid_values() {
