@@ -47,7 +47,7 @@ use crate::error::{EventError, EventSourceError};
 /// Represents a stream of Server-Sent Events.
 pub type ServerSentEvents = Pin<Box<dyn Stream<Item = Result<Event, EventError>>>>;
 
-pub static MIME_EVENT_STREAM: &[u8] = russe::MEDIA_TYPE_STR.as_bytes();
+pub static MIME_EVENT_STREAM: &[u8] = b"text/event-stream";
 
 /// Returns `true` if the given [`HeaderValue`] is an event stream MIME type.
 fn is_event_stream(value: &HeaderValue) -> bool {
@@ -60,6 +60,11 @@ fn is_event_stream(value: &HeaderValue) -> bool {
         .eq_ignore_ascii_case(MIME_EVENT_STREAM)
 }
 
+/// Adapts [`russe::Decoder`] to discard an incomplete SSE event at EOF.
+///
+/// [`FramedRead`] calls [`Decoder::decode_eof`] when the response ends. Its default
+/// implementation reports an error if a partial frame remains. This wrapper delegates
+/// parsing to `russe` and lets the stream end after the last complete event.
 #[derive(Default)]
 struct EventDecoder(russe::Decoder);
 
@@ -72,7 +77,6 @@ impl Decoder for EventDecoder {
     }
 
     fn decode_eof(&mut self, buf: &mut BytesMut) -> russe::Result<Option<Self::Item>> {
-        // SSE discards an incomplete event when the response ends.
         self.decode(buf)
     }
 }
