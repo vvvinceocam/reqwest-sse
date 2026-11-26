@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        rust-toolchain: [stable, "1.89.0"]
+        rust-toolchain: [stable, "1.88.0"]
 
     steps:
       - uses: actions/checkout@v4
